@@ -1,0 +1,138 @@
+
+
+Measuring and Increasing Performance
+====================================
+
+"Premature optimization is the root of all evil (or at least most of
+it) in programming."  Donald Knuth.
+
+In other words, know thy code!  The only way to find performance
+bottlenecks is to profile your code.  Unfortunately, the situation is
+a bit more complex in Python than you would like it to be: see
+http://docs.python.org/lib/profile.html.  Briefly, there are three
+(!?) standard profiling systems that come with Python: profile,
+cProfile (only since python 2.5!), and hotshot (thought note that
+profile and cProfile are Python and C implementations of the same
+API).  There is also a separately maintained one called statprof, that
+I nominally maintain.
+
+The ones included with Python are deterministic profilers, while
+statprof is a statistical profiler.  What's the difference? To steal
+from the Python docs:
+
+   Deterministic profiling is meant to reflect the fact that all function
+   call, function return, and exception events are monitored, and precise
+   timings are made for the intervals between these events (during which
+   time the user's code is executing). In contrast, statistical profiling
+   randomly samples the effective instruction pointer, and deduces where
+   time is being spent. The latter technique traditionally involves less
+   overhead (as the code does not need to be instrumented), but provides
+   only relative indications of where time is being spent.
+   
+Let's go to the examples.  Suppose we have two functions 'count1'
+and 'count2', and we want to run both and see where time is spent.
+
+-----
+
+Here's some example hotshot code: ::
+
+   import hotshot, hotshot.stats
+   prof = hotshot.Profile('hotshot.prof')
+   prof.runcall(count1)
+   prof.runcall(count2)
+   prof.close()
+   stats = hotshot.stats.load('hotshot.prof')
+   stats.sort_stats('time', 'calls')
+   stats.print_stats(20)
+
+and the resulting output: ::
+
+         2 function calls in 5.769 CPU seconds
+
+   Ordered by: internal time, call count
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    4.335    4.335    4.335    4.335 count.py:8(count2)
+        1    1.434    1.434    1.434    1.434 count.py:1(count1)
+        0    0.000             0.000          profile:0(profiler)
+
+-----
+
+Here's some example cProfile code: ::
+
+   def runboth():
+       count1()
+       count2()
+   
+   import cProfile, pstats
+   cProfile.run('runboth()', 'cprof.out')
+   
+   p = pstats.Stats('cprof.out')
+   p.sort_stats('time').print_stats(10)
+   
+and the resulting output: ::
+
+   Wed Jun 13 00:11:55 2007    cprof.out
+   
+            7 function calls in 5.643 CPU seconds
+   
+      Ordered by: internal time
+   
+      ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+           1    3.817    3.817    4.194    4.194 count.py:8(count2)
+           1    1.282    1.282    1.450    1.450 count.py:1(count1)
+           2    0.545    0.272    0.545    0.272 {range}
+           1    0.000    0.000    5.643    5.643 run-cprofile:8(runboth)
+           1    0.000    0.000    5.643    5.643 <string>:1(<module>)
+           1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+   
+-----
+
+And here's an example of statprof, the statistical profiler: ::
+
+   import statprof
+   statprof.start()
+   count1()
+   count2()
+   statprof.stop()
+   statprof.display()
+
+And the output: ::
+
+     %   cumulative      self
+    time    seconds   seconds  name
+    74.66      4.10      4.10  count.py:8:count2
+    25.34      1.39      1.39  count.py:1:count1
+     0.00      5.49      0.00  run-statprof:2:<module>
+   ---
+   Sample count: 296
+   Total time: 5.490000 seconds
+
+Which profiler should you use?
+------------------------------
+
+statprof used to report more accurate numbers than hotshot or
+cProfile, because hotshot and cProfile had to instrument the code
+(insert tracing statements, basically).  However, the numbers shown
+above are pretty similar to each other and I'm not sure there's much
+of a reason to choose between them any more.  So, I recommend starting
+with cProfile, because it's the officially supported one.
+
+One note -- none of these profilers really work all that well with
+threads, for a variety of reasons.  You're best off doing performance
+measurements on non-threaded code.
+
+Measuring code snippets with timeit
+-----------------------------------
+
+There's also a simple timing tool called timeit: ::
+
+   from timeit import Timer
+   from count import *
+   
+   t1 = Timer("count1()", "from count import count1")
+   print 'count1:', t1.timeit(number=1)
+   
+   t2 = Timer("count2()", "from count import count2")
+   print 'count2:', t2.timeit(number=1)
+
